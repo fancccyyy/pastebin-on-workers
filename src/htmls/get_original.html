@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>在线粘贴板 - 查看</title>
+  <style>
+    body {
+      font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
+    }
+
+    .container {
+      width: 90%;
+      max-width: 600px;
+      background: #ffffff;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      border-radius: 12px;
+      padding: 25px;
+      box-sizing: border-box;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+      color: #4a4e69;
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .info {
+      margin-bottom: 20px;
+      font-size: 14px;
+      color: #666;
+    }
+
+    .info span {
+      font-weight: 600;
+      color: #333;
+    }
+
+    .content {
+      margin-bottom: 20px;
+    }
+
+    .preview {
+      padding: 12px;
+      border: 2px solid #d8d8d8;
+      border-radius: 8px;
+      background-color: #f9f9f9;
+      min-height: 50px;
+      font-size: 14px;
+      word-wrap: break-word;
+    }
+
+    pre {
+      margin: 0;
+    }
+
+    code {
+      display: block;
+      padding: 10px;
+      background-color: #2d2d2d;
+      color: #fff;
+      border-radius: 8px;
+      overflow-x: auto;
+    }
+
+    .md-preview {
+      padding: 10px;
+      background-color: #f9f9f9;
+      border-radius: 8px;
+    }
+
+    .file-info {
+      margin-bottom: 10px;
+    }
+
+    .file-info span {
+      font-weight: 600;
+      color: #333;
+    }
+
+    .actions {
+      margin-top: 20px;
+    }
+
+    .button {
+      display: inline-block;
+      padding: 10px 20px;
+      background-color: #a8d8ea;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #333;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+      text-decoration: none;
+    }
+
+    .button:hover {
+      background-color: #87ceeb;
+    }
+
+    .error {
+      color: #e74c3c;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+
+    @media (max-width: 600px) {
+      .container {
+        padding: 20px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>在线粘贴板 - 查看</h1>
+    <div id="loading" class="info">加载中...</div>
+    <div id="content" style="display: none;">
+      <div class="info">
+        到期时间：<span id="expiryTime"></span>
+      </div>
+      <div id="textContent" class="content">
+        <div class="preview" id="textPreview"></div>
+        <div class="actions">
+          <button class="button" onclick="copyText()">复制文本</button>
+        </div>
+      </div>
+      <div id="fileContent" class="content">
+        <div class="file-info">
+          文件名：<span id="fileName"></span><br />
+          文件大小：<span id="fileSize"></span>
+        </div>
+        <div class="actions">
+          <button class="button" onclick="downloadFile()">下载文件</a>
+        </div>
+      </div>
+    </div>
+    <div id="error" class="error"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.7.0/build/highlight.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.7.0/build/styles/default.min.css">
+  <script>
+    const pathParam = window.location.pathname.split('/')[1];
+
+    if (!pathParam) {
+      showError('无效的链接参数！');
+    } else {
+      fetchType();
+      // fetchText();
+    }
+
+    async function fetchType() {
+      try {
+        const response = await fetch(`/getType?key=${pathParam}`);
+        if (!response.ok) {
+          throw new Error('无法获取类型信息');
+        }
+        const { type } = await response.json();
+
+        if (type === 'text') {
+          fetchText();
+        } else if (type === 'file') {
+          fetchFile();
+        } else {
+          showError('未知的类型！');
+        }
+      } catch (error) {
+        showError(error.message || '加载类型时出错');
+      }
+    }
+
+    async function fetchText() {
+      try {
+        const response = await fetch(`/getText?key=${pathParam}`);
+        if (!response.ok) {
+          throw new Error('无法获取文本内容');
+        }
+        const { text, expiry } = await response.json();
+
+        document.getElementById('fileContent').hidden = true;
+
+        document.getElementById('expiryTime').textContent = formatExpiry(expiry);
+        renderText(text);
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('content').style.display = 'block';
+      } catch (error) {
+        showError(error.message || '加载文本时出错');
+      }
+    }
+
+    async function fetchFile() {
+      try {
+        const response = await fetch(`/getFileInfo?key=${pathParam}`);
+        if (!response.ok) {
+          throw new Error('文件已过期或链接错误');
+        }
+        const { fileName, fileSize, expiry } = await response.json();
+
+        document.getElementById('expiryTime').textContent = formatExpiry(expiry);
+        document.getElementById('fileName').textContent = fileName;
+        document.getElementById('fileSize').textContent = `${(fileSize / 1024 / 1024).toFixed(2)} MB`;
+        // document.getElementById('fileDownloadLink').href = fileUrl;
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('content').style.display = 'block';
+        document.getElementById('textContent').style.display = 'none';
+      } catch (error) {
+        showError(error.message || '加载文件时出错');
+      }
+    }
+
+    async function downloadFile() {
+      try {
+        const response = await fetch(`/getFile?key=${pathParam}`);
+        if (response.ok) {
+          const contentType = response.headers.get('Content-Type');
+          const contentDisposition = response.headers.get('Content-Disposition');
+          const fileName = document.getElementById('fileName').textContent;
+
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileName;
+
+          document.body.appendChild(a);
+          a.click();
+
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+        } else {
+          showError('无法获取文件，可能是文件不存在或已过期');
+        }
+      } catch (error) {
+        showError(error);
+      }
+    }
+
+    function renderText(text) {
+      const previewDiv = document.getElementById('textPreview');
+      if (isMarkdown(text)) {
+        const rendered = marked.parse(text);
+        previewDiv.innerHTML = `<div class="md-preview">${rendered}</div>`;
+      } else if (isCode(text)) {
+        previewDiv.innerHTML = `<pre><code>${hljs.highlightAuto(text).value}</code></pre>`;
+      } else {
+        previewDiv.textContent = text;
+      }
+    }
+
+    function isMarkdown(text) {
+      return /^#{1,6}\s|!\[.*\]\(.*\)|\*\*.*\*\*|\*.*\*/.test(text);
+    }
+
+    function isCode(text) {
+      const codePatterns = [
+        /<\w+>/, // HTML 标签
+        /function\s+\w+\(/, // JS 函数
+        /class\s+\w+/, // 类定义
+        /const\s+\w+/, // 常量定义
+        /return\s\w+/, // 返回语句
+        /def\s+\w+\(/, // Python 函数
+        /\/\/|\/\*|\*\/|#include/, // 注释或 C/C++ 代码
+      ];
+      return codePatterns.some(pattern => pattern.test(text));
+    }
+
+    function copyText() {
+      const text = document.getElementById('textPreview').textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        alert('已复制到剪贴板！');
+      }).catch(() => {
+        alert('复制失败，请重试！');
+      });
+    }
+
+    function formatExpiry(expiry) {
+      return new Date(expiry).toLocaleString();
+    }
+
+    function showError(message) {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('error').textContent = message;
+    }
+  </script>
+</body>
+
+</html>
